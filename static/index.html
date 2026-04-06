@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SmartRoute — Optimizador de ruta</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>SmartRoute</h1>
+    <span class="subtitle">Optimizador de ruta de despacho</span>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <div class="panel-section">
+        <h2>1. Origen</h2>
+        <button id="btn-locate" class="primary">Usar mi ubicación</button>
+        <p id="origin-text" class="muted">Sin origen</p>
+      </div>
+
+      <div class="panel-section">
+        <h2>2. Direcciones</h2>
+
+        <label class="field">
+          <span>Buscar / añadir manualmente</span>
+          <input id="address-input" type="text" placeholder="Ej: Av. Providencia 1234, Santiago" autocomplete="off" />
+        </label>
+
+        <details>
+          <summary>Carga masiva (una dirección por línea o CSV)</summary>
+          <textarea id="bulk-input" rows="5" placeholder="Av. Apoquindo 4500, Las Condes&#10;Manuel Montt 200, Providencia"></textarea>
+          <button id="btn-bulk" class="secondary">Importar lista</button>
+        </details>
+
+        <p class="hint">Tip: también puedes hacer click en el mapa para añadir un punto.</p>
+
+        <ul id="address-list" class="address-list"></ul>
+      </div>
+
+      <div class="panel-section">
+        <h2>3. Optimizar</h2>
+        <div class="mode-toggle">
+          <label><input type="radio" name="mode" value="distance" checked /> Por distancia</label>
+          <label><input type="radio" name="mode" value="sector" /> Por sector</label>
+        </div>
+        <button id="btn-optimize" class="primary big">Optimizar ruta</button>
+      </div>
+
+      <div class="panel-section" id="result-section" hidden>
+        <h2>Resultado</h2>
+        <p id="result-summary" class="muted"></p>
+        <ol id="result-stops" class="result-stops"></ol>
+        <a id="open-in-gmaps" href="#" target="_blank" rel="noopener" class="primary as-button">Abrir en Google Maps</a>
+      </div>
+
+      <div class="panel-section">
+        <h2>Historial</h2>
+        <button id="btn-refresh-history" class="secondary">Actualizar</button>
+        <ul id="history-list" class="history-list"></ul>
+      </div>
+    </section>
+
+    <section class="map-wrapper">
+      <div id="map"></div>
+    </section>
+  </main>
+
+  <script>
+    window.SMARTROUTE_CONFIG = {
+      googleMapsApiKey: "{{ google_maps_api_key }}"
+    };
+  </script>
+  <script src="/static/js/map.js"></script>
+  <script src="/static/js/input.js"></script>
+  <script src="/static/js/app.js"></script>
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initMap"
+    async defer></script>
+</body>
+</html>
