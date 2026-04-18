@@ -1,82 +1,76 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SmartRoute — Optimizador de ruta</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1030" />
+  <title>NightOwl — Sleep Tracker</title>
   <link rel="stylesheet" href="/static/css/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <h1>SmartRoute</h1>
-    <span class="subtitle">Optimizador de ruta de despacho</span>
+  <header>
+    <h1>🌙 NightOwl</h1>
+    <nav>
+      <button class="tab active" data-tab="record">Grabar</button>
+      <button class="tab" data-tab="live">En vivo</button>
+      <button class="tab" data-tab="history">Historial</button>
+    </nav>
   </header>
 
-  <main class="layout">
-    <section class="panel">
-      <div class="panel-section">
-        <h2>1. Origen</h2>
-        <button id="btn-locate" class="primary">Usar mi ubicación</button>
-        <p id="origin-text" class="muted">Sin origen</p>
-      </div>
-
-      <div class="panel-section">
-        <h2>2. Direcciones</h2>
-
-        <label class="field">
-          <span>Buscar / añadir manualmente</span>
-          <input id="address-input" type="text" placeholder="Ej: Av. Providencia 1234, Santiago" autocomplete="off" />
-        </label>
-
-        <details>
-          <summary>Carga masiva (una dirección por línea o CSV)</summary>
-          <textarea id="bulk-input" rows="5" placeholder="Av. Apoquindo 4500, Las Condes&#10;Manuel Montt 200, Providencia"></textarea>
-          <button id="btn-bulk" class="secondary">Importar lista</button>
-        </details>
-
-        <p class="hint">Tip: también puedes hacer click en el mapa para añadir un punto.</p>
-
-        <ul id="address-list" class="address-list"></ul>
-      </div>
-
-      <div class="panel-section">
-        <h2>3. Optimizar</h2>
-        <div class="mode-toggle">
-          <label><input type="radio" name="mode" value="distance" checked /> Por distancia</label>
-          <label><input type="radio" name="mode" value="sector" /> Por sector</label>
+  <main>
+    <section id="tab-record" class="tab-panel active">
+      <div class="card center">
+        <button id="btn-toggle" class="big-btn">Empezar a dormir</button>
+        <p class="hint">Coloca el teléfono sobre el colchón cerca de tu almohada. La app captura movimiento y audio localmente para detectar fases de sueño y ronquidos.</p>
+        <div class="status-row">
+          <div><span class="label">Estado</span><span id="status">Detenido</span></div>
+          <div><span class="label">Duración</span><span id="elapsed">00:00</span></div>
         </div>
-        <button id="btn-optimize" class="primary big">Optimizar ruta</button>
-      </div>
-
-      <div class="panel-section" id="result-section" hidden>
-        <h2>Resultado</h2>
-        <p id="result-summary" class="muted"></p>
-        <ol id="result-stops" class="result-stops"></ol>
-        <a id="open-in-gmaps" href="#" target="_blank" rel="noopener" class="primary as-button">Abrir en Google Maps</a>
-      </div>
-
-      <div class="panel-section">
-        <h2>Historial</h2>
-        <button id="btn-refresh-history" class="secondary">Actualizar</button>
-        <ul id="history-list" class="history-list"></ul>
+        <details class="config">
+          <summary>Configuración</summary>
+          <label>Sensibilidad a ronquidos
+            <input type="range" id="snore-threshold" min="0.3" max="0.9" step="0.05" value="0.55" />
+            <span id="snore-threshold-val">0.55</span>
+          </label>
+        </details>
       </div>
     </section>
 
-    <section class="map-wrapper">
-      <div id="map"></div>
+    <section id="tab-live" class="tab-panel">
+      <div class="card">
+        <h2>Actividad en vivo</h2>
+        <div class="live-grid">
+          <div><span class="label">Ruido</span><span id="live-noise">—</span> dB</div>
+          <div><span class="label">Movimiento</span><span id="live-motion">—</span></div>
+          <div><span class="label">Ronquido</span><span id="live-snore">—</span></div>
+          <div><span class="label">Fase estimada</span><span id="live-phase">—</span></div>
+        </div>
+        <canvas id="live-chart" height="120"></canvas>
+      </div>
+    </section>
+
+    <section id="tab-history" class="tab-panel">
+      <div id="history-list"></div>
+      <div id="history-detail" class="card hidden">
+        <button id="back-btn" class="link">← Volver al historial</button>
+        <h2 id="detail-date"></h2>
+        <div class="summary-grid">
+          <div><span class="label">Calidad</span><span id="detail-score">—</span>/100</div>
+          <div><span class="label">Duración</span><span id="detail-duration">—</span></div>
+          <div><span class="label">Sueño profundo</span><span id="detail-deep">—</span></div>
+          <div><span class="label">Sueño ligero</span><span id="detail-light">—</span></div>
+          <div><span class="label">Despierto</span><span id="detail-awake">—</span></div>
+          <div><span class="label">Ronquidos</span><span id="detail-snores">—</span></div>
+        </div>
+        <h3>Hipnograma</h3>
+        <canvas id="hypno-chart" height="140"></canvas>
+        <h3>Ronquidos y ruido</h3>
+        <canvas id="noise-chart" height="140"></canvas>
+      </div>
     </section>
   </main>
 
-  <script>
-    window.SMARTROUTE_CONFIG = {
-      googleMapsApiKey: "{{ google_maps_api_key }}"
-    };
-  </script>
-  <script src="/static/js/map.js"></script>
-  <script src="/static/js/input.js"></script>
-  <script src="/static/js/app.js"></script>
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initMap"
-    async defer></script>
+  <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>
