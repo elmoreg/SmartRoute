@@ -1,12 +1,16 @@
 import { SleepRecorder } from './recorder.js';
 import { classifyPhase, PHASE_LABEL } from './analyzer.js';
 import { initLiveChart, pushLivePoint, renderHypnogram, renderNoiseChart } from './charts.js';
+import { SmartAlarm } from './alarm.js';
 
 const $ = (sel) => document.querySelector(sel);
 
 const state = {
   recorder: null,
   timer: null,
+  wakeLock: null,
+  alarm: new SmartAlarm(),
+  currentDetail: null,
 };
 
 // ---- tabs ----
@@ -23,13 +27,16 @@ function activateTab(name) {
   }
 }
 
-// ---- threshold slider ----
+// ---- threshold + alarm config ----
 const slider = $('#snore-threshold');
 const sliderVal = $('#snore-threshold-val');
 slider.addEventListener('input', () => {
   sliderVal.textContent = slider.value;
   if (state.recorder) state.recorder.setSnoreThreshold(+slider.value);
 });
+
+const alarmInput = $('#alarm-time');
+alarmInput.addEventListener('change', () => state.alarm.set(alarmInput.value));
 
 // ---- toggle record ----
 $('#btn-toggle').addEventListener('click', async () => {
@@ -43,17 +50,21 @@ $('#btn-toggle').addEventListener('click', async () => {
 async function startRecording() {
   const rec = new SleepRecorder({ snoreThreshold: +slider.value });
   state.recorder = rec;
+  state.alarm.set(alarmInput.value);
 
-  rec.addEventListener('tick', (e) => updateLive(e.detail));
+  rec.addEventListener('tick', (e) => {
+    updateLive(e.detail);
+    if (state.alarm.shouldFire(e.detail)) state.alarm.fire(() => stopRecording());
+  });
   rec.addEventListener('stopped', (e) => handleStopped(e.detail));
 
   try {
-    // Ask iOS 13+ for motion permission.
     if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
       const p = await DeviceMotionEvent.requestPermission();
       if (p !== 'granted') console.warn('Motion permission denied');
     }
     await rec.start();
+    await acquireWakeLock();
   } catch (err) {
     alert('No se pudo iniciar la grabación: ' + err.message);
     state.recorder = null;
@@ -71,11 +82,36 @@ async function startRecording() {
 async function stopRecording() {
   if (!state.recorder) return;
   await state.recorder.stop();
+  await releaseWakeLock();
   clearInterval(state.timer);
   $('#btn-toggle').textContent = 'Empezar a dormir';
   $('#btn-toggle').classList.remove('recording');
   $('#status').textContent = 'Detenido';
   $('#status').classList.remove('recording');
+}
+
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    state.wakeLock = await navigator.wakeLock.request('screen');
+    document.addEventListener('visibilitychange', reacquireWakeLock);
+  } catch (err) {
+    console.warn('Wake Lock unavailable:', err.message);
+  }
+}
+
+async function reacquireWakeLock() {
+  if (document.visibilityState === 'visible' && state.recorder?.running && !state.wakeLock) {
+    try { state.wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+}
+
+async function releaseWakeLock() {
+  document.removeEventListener('visibilitychange', reacquireWakeLock);
+  if (state.wakeLock) {
+    try { await state.wakeLock.release(); } catch {}
+    state.wakeLock = null;
+  }
 }
 
 function tickElapsed() {
@@ -156,6 +192,7 @@ function renderHistoryItem(s) {
 }
 
 function showDetail(s) {
+  state.currentDetail = s;
   $('#history-list').classList.add('hidden');
   $('#history-detail').classList.remove('hidden');
   const date = new Date(s.started_at);
@@ -171,6 +208,31 @@ function showDetail(s) {
 }
 
 $('#back-btn').addEventListener('click', loadHistory);
+
+$('#export-csv').addEventListener('click', () => {
+  if (!state.currentDetail) return;
+  const s = state.currentDetail;
+  const header = 'minute,phase,motion,noise_db,snoring\n';
+  const body = s.samples.map(x =>
+    `${x.minute},${x.phase},${x.motion},${x.noise_db},${x.snoring ? 1 : 0}`
+  ).join('\n');
+  const blob = new Blob([header + body], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const stamp = new Date(s.started_at).toISOString().slice(0, 10);
+  a.download = `nightowl-${stamp}-${s.id}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+$('#delete-session').addEventListener('click', async () => {
+  if (!state.currentDetail) return;
+  if (!confirm('¿Eliminar esta sesión?')) return;
+  await fetch(`/api/sessions/${state.currentDetail.id}`, { method: 'DELETE' });
+  state.currentDetail = null;
+  loadHistory();
+});
 
 // ---- utils ----
 function fmtDuration(ms) {

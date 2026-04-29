@@ -66,3 +66,13 @@ def test_delete_session(client):
     assert d.status_code == 204
     g = client.get(f"/api/sessions/{sid}")
     assert g.status_code == 404
+
+
+def test_pwa_routes(client):
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200
+    assert "javascript" in sw.headers["content-type"]
+
+    mf = client.get("/manifest.webmanifest")
+    assert mf.status_code == 200
+    assert "manifest" in mf.headers["content-type"]

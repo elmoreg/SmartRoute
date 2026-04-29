@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0b1030" />
   <title>NightOwl — Sleep Tracker</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/static/icon.svg" />
   <link rel="stylesheet" href="/static/css/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" defer></script>
 </head>
@@ -33,6 +36,10 @@
             <input type="range" id="snore-threshold" min="0.3" max="0.9" step="0.05" value="0.55" />
             <span id="snore-threshold-val">0.55</span>
           </label>
+          <label>Alarma inteligente (despertar en sueño ligero)
+            <input type="time" id="alarm-time" />
+            <span class="hint-inline">Si se activa, sonará al detectar fase ligera dentro de los 30 min anteriores.</span>
+          </label>
         </details>
       </div>
     </section>
@@ -53,7 +60,13 @@
     <section id="tab-history" class="tab-panel">
       <div id="history-list"></div>
       <div id="history-detail" class="card hidden">
-        <button id="back-btn" class="link">← Volver al historial</button>
+        <div class="detail-header">
+          <button id="back-btn" class="link">← Volver al historial</button>
+          <div class="detail-actions">
+            <button id="export-csv" class="ghost-btn">Exportar CSV</button>
+            <button id="delete-session" class="ghost-btn danger">Eliminar</button>
+          </div>
+        </div>
         <h2 id="detail-date"></h2>
         <div class="summary-grid">
           <div><span class="label">Calidad</span><span id="detail-score">—</span>/100</div>
@@ -72,5 +85,12 @@
   </main>
 
   <script type="module" src="/static/js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>
