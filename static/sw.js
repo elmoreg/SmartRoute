@@ -1,5 +1,5 @@
 // Minimal cache-first service worker for the NightOwl shell.
-const CACHE = 'nightowl-v1';
+const CACHE = 'nightowl-v2';
 const SHELL = [
   '/',
   '/static/css/styles.css',
@@ -7,7 +7,10 @@ const SHELL = [
   '/static/js/recorder.js',
   '/static/js/analyzer.js',
   '/static/js/charts.js',
-  '/static/manifest.webmanifest',
+  '/static/js/alarm.js',
+  '/static/js/trends.js',
+  '/static/js/yamnet.js',
+  '/manifest.webmanifest',
   '/static/icon.svg',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js',
 ];

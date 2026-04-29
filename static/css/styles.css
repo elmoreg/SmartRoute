@@ -200,6 +200,19 @@ h3 { margin-top: 20px; color: var(--muted); font-size: 0.9rem; text-transform: u
 .ghost-btn.danger { color: #fca5a5; }
 .ghost-btn.danger:hover { background: rgba(239,68,68,0.15); }
 
+.toggle-label {
+  display: flex !important;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-top: 12px !important;
+  cursor: pointer;
+}
+.toggle-label input { margin-right: 8px; }
+.toggle-label > span:first-of-type { color: var(--fg); font-size: 0.95rem; }
+
 .alarm-banner {
   position: fixed;
   inset: 0;

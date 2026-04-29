@@ -2,6 +2,8 @@ import { SleepRecorder } from './recorder.js';
 import { classifyPhase, PHASE_LABEL } from './analyzer.js';
 import { initLiveChart, pushLivePoint, renderHypnogram, renderNoiseChart } from './charts.js';
 import { SmartAlarm } from './alarm.js';
+import { renderTrends } from './trends.js';
+import { YamnetDetector } from './yamnet.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -11,6 +13,7 @@ const state = {
   wakeLock: null,
   alarm: new SmartAlarm(),
   currentDetail: null,
+  yamnet: null,
 };
 
 // ---- tabs ----
@@ -22,6 +25,7 @@ function activateTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
   if (name === 'history') loadHistory();
+  if (name === 'trends') renderTrends().catch(err => console.error('trends:', err));
   if (name === 'live' && state.recorder) {
     setTimeout(() => initLiveChart(document.getElementById('live-chart')), 0);
   }
@@ -38,6 +42,26 @@ slider.addEventListener('input', () => {
 const alarmInput = $('#alarm-time');
 alarmInput.addEventListener('change', () => state.alarm.set(alarmInput.value));
 
+const mlToggle = $('#ml-toggle');
+const mlStatus = $('#ml-status');
+mlToggle.addEventListener('change', async () => {
+  if (mlToggle.checked) {
+    try {
+      state.yamnet = new YamnetDetector({ onStatus: (s) => { mlStatus.textContent = s; } });
+      await state.yamnet.load();
+      if (state.recorder) state.recorder.setMlDetector(state.yamnet);
+    } catch (err) {
+      mlStatus.textContent = 'Error: ' + err.message;
+      mlToggle.checked = false;
+      state.yamnet = null;
+    }
+  } else {
+    state.yamnet = null;
+    if (state.recorder) state.recorder.setMlDetector(null);
+    mlStatus.textContent = 'Detector ML desactivado.';
+  }
+});
+
 // ---- toggle record ----
 $('#btn-toggle').addEventListener('click', async () => {
   if (!state.recorder || !state.recorder.running) {
@@ -48,7 +72,7 @@ $('#btn-toggle').addEventListener('click', async () => {
 });
 
 async function startRecording() {
-  const rec = new SleepRecorder({ snoreThreshold: +slider.value });
+  const rec = new SleepRecorder({ snoreThreshold: +slider.value, mlDetector: state.yamnet });
   state.recorder = rec;
   state.alarm.set(alarmInput.value);
 

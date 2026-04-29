@@ -18,6 +18,7 @@
       <button class="tab active" data-tab="record">Grabar</button>
       <button class="tab" data-tab="live">En vivo</button>
       <button class="tab" data-tab="history">Historial</button>
+      <button class="tab" data-tab="trends">Tendencias</button>
     </nav>
   </header>
 
@@ -40,6 +41,12 @@
             <input type="time" id="alarm-time" />
             <span class="hint-inline">Si se activa, sonará al detectar fase ligera dentro de los 30 min anteriores.</span>
           </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="ml-toggle" />
+            <span>Detección ML de ronquidos (YAMNet)</span>
+            <span class="hint-inline">Carga un modelo ~4MB la primera vez. Mejora la precisión vs. la heurística por FFT.</span>
+          </label>
+          <div id="ml-status" class="hint-inline"></div>
         </details>
       </div>
     </section>
@@ -54,6 +61,21 @@
           <div><span class="label">Fase estimada</span><span id="live-phase">—</span></div>
         </div>
         <canvas id="live-chart" height="120"></canvas>
+      </div>
+    </section>
+
+    <section id="tab-trends" class="tab-panel">
+      <div class="card">
+        <h2>Resumen de los últimos 14 días</h2>
+        <div id="trends-summary" class="summary-grid"></div>
+      </div>
+      <div class="card">
+        <h3>Calidad por noche</h3>
+        <canvas id="trend-quality" height="120"></canvas>
+        <h3>Sueño profundo (min)</h3>
+        <canvas id="trend-deep" height="120"></canvas>
+        <h3>Ronquidos por noche</h3>
+        <canvas id="trend-snores" height="120"></canvas>
       </div>
     </section>
 

@@ -2,9 +2,10 @@
 // Emits one aggregated sample per minute.
 
 export class SleepRecorder extends EventTarget {
-  constructor({ snoreThreshold = 0.55 } = {}) {
+  constructor({ snoreThreshold = 0.55, mlDetector = null } = {}) {
     super();
     this.snoreThreshold = snoreThreshold;
+    this.mlDetector = mlDetector;
     this.running = false;
     this.startedAt = null;
     this.samples = [];
@@ -15,11 +16,15 @@ export class SleepRecorder extends EventTarget {
     this._motionHandler = null;
     this._audioCtx = null;
     this._analyser = null;
+    this._processor = null;
     this._micStream = null;
     this._rafId = null;
+    this._mlSnoring = false;
+    this._mlPending = false;
   }
 
   setSnoreThreshold(v) { this.snoreThreshold = v; }
+  setMlDetector(d) { this.mlDetector = d; }
 
   async start() {
     if (this.running) return;
@@ -42,6 +47,11 @@ export class SleepRecorder extends EventTarget {
     if (this._motionHandler) {
       window.removeEventListener('devicemotion', this._motionHandler);
       this._motionHandler = null;
+    }
+    if (this._processor) {
+      try { this._processor.disconnect(); } catch {}
+      this._processor.onaudioprocess = null;
+      this._processor = null;
     }
     if (this._micStream) {
       this._micStream.getTracks().forEach(t => t.stop());
@@ -70,6 +80,32 @@ export class SleepRecorder extends EventTarget {
     analyser.smoothingTimeConstant = 0.6;
     source.connect(analyser);
     this._analyser = analyser;
+
+    if (this.mlDetector) {
+      // Tap raw samples for ML inference. ScriptProcessor is deprecated but
+      // universally supported; AudioWorklet would be preferred for production.
+      const proc = ctx.createScriptProcessor(4096, 1, 1);
+      proc.onaudioprocess = (e) => this._handleAudioBlock(e.inputBuffer);
+      source.connect(proc);
+      proc.connect(ctx.destination);
+      this._processor = proc;
+    }
+  }
+
+  async _handleAudioBlock(buffer) {
+    if (!this.mlDetector || this._mlPending) return;
+    const sr = buffer.sampleRate;
+    const data = buffer.getChannelData(0);
+    const resampled = sr === 16000 ? new Float32Array(data) : resample(data, sr, 16000);
+    this._mlPending = true;
+    try {
+      const r = await this.mlDetector.feed(resampled);
+      if (r) this._mlSnoring = r.snoring;
+    } catch (err) {
+      console.warn('ML detector error:', err);
+    } finally {
+      this._mlPending = false;
+    }
   }
 
   _startMotion() {
@@ -120,7 +156,8 @@ export class SleepRecorder extends EventTarget {
     }
     const ratio = total > 0 ? lowSum / total : 0;
     const loud = avg > 25;   // need at least some amplitude
-    const snoring = loud && ratio > this.snoreThreshold;
+    const heuristicSnore = loud && ratio > this.snoreThreshold;
+    const snoring = this.mlDetector ? this._mlSnoring : heuristicSnore;
     this._snoreBuf.push(snoring ? 1 : 0);
   }
 
@@ -176,4 +213,17 @@ export class SleepRecorder extends EventTarget {
     const snoring = this._snoreBuf.length ? !!this._snoreBuf[this._snoreBuf.length - 1] : false;
     return { noise, motion, snoring, minute: this._currentMinute() };
   }
+}
+
+function resample(data, fromRate, toRate) {
+  const ratio = fromRate / toRate;
+  const len = Math.floor(data.length / ratio);
+  const out = new Float32Array(len);
+  for (let i = 0; i < len; i++) {
+    const x = i * ratio;
+    const j = Math.floor(x);
+    const frac = x - j;
+    out[i] = data[j] + (data[j + 1] !== undefined ? (data[j + 1] - data[j]) * frac : 0);
+  }
+  return out;
 }

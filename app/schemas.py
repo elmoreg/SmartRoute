@@ -42,3 +42,23 @@ class SessionSummary(BaseModel):
 
 class SessionDetail(SessionSummary):
     samples: List[SampleOut]
+
+
+class TrendDay(BaseModel):
+    date: str
+    sessions: int
+    duration_min: float
+    quality_score: float
+    deep_sleep_min: float
+    light_sleep_min: float
+    awake_min: float
+    snore_events: int
+
+
+class TrendsResponse(BaseModel):
+    days: List[TrendDay]
+    avg_quality: float
+    avg_duration_min: float
+    avg_deep_min: float
+    total_snore_events: int
+    nights_tracked: int

@@ -4,8 +4,9 @@ from sqlmodel import Session, select
 
 from ..database import get_session
 from ..models import SleepSession, SleepSample
-from ..schemas import SessionCreate, SessionSummary, SessionDetail, SampleOut
+from ..schemas import SessionCreate, SessionSummary, SessionDetail, SampleOut, TrendsResponse
 from ..services.analyzer import Sample, analyze
+from ..services.trends import build_trends
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -68,6 +69,13 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_session)):
 def list_sessions(db: Session = Depends(get_session)):
     rows = db.exec(select(SleepSession).order_by(SleepSession.started_at.desc())).all()
     return [_to_summary(r) for r in rows]
+
+
+@router.get("/trends", response_model=TrendsResponse)
+def get_trends(days: int = 14, db: Session = Depends(get_session)):
+    days = max(1, min(60, days))
+    rows = db.exec(select(SleepSession)).all()
+    return build_trends(rows, days=days)
 
 
 @router.get("/{session_id}", response_model=SessionDetail)

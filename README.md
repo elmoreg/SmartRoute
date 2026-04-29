@@ -14,6 +14,8 @@ PWA para medir sueño, calidad, momentos de sueño profundo y ronquidos. Se inst
 - **Wake Lock** durante la grabación para evitar que el teléfono suspenda y corte el seguimiento.
 - **Alarma inteligente**: si configuras una hora objetivo, suena al detectar fase ligera dentro de los 30 min anteriores (evita despertar en sueño profundo).
 - **Exportar CSV** de la sesión desde la vista de detalle.
+- **Tendencias** de los últimos 14 días: calidad, sueño profundo y ronquidos por noche, con métricas agregadas. Una sesión iniciada antes de las 6am se atribuye a la noche del día anterior.
+- **Detección ML opcional** (toggle): carga YAMNet vía TensorFlow.js y clasifica audio en tiempo real para mejorar la precisión de ronquidos sobre la heurística por FFT.
 
 ## Stack
 
@@ -59,8 +61,9 @@ app/
   database.py          Engine + init_db
   models.py            SQLModel: SleepSession, SleepSample
   schemas.py           Pydantic I/O
-  routers/sessions.py  CRUD /api/sessions
+  routers/sessions.py  CRUD /api/sessions + /api/sessions/trends
   services/analyzer.py Fase + score (usado por backend y reflejado en JS)
+  services/trends.py   Agregación por noche (cutoff a las 6am)
 static/
   index.html
   css/styles.css
@@ -70,6 +73,8 @@ static/
     analyzer.js  Clasificación en vivo (espejo de analyzer.py)
     charts.js    Hipnograma + cronología de ruido
     alarm.js     Alarma inteligente con tono Web Audio
+    trends.js    Vista de tendencias semanales (Chart.js)
+    yamnet.js    Detector ML opcional (TF.js + YAMNet)
   manifest.webmanifest
   sw.js          Service worker (cache shell + network-first API)
 tests/
@@ -83,7 +88,7 @@ El audio nunca sale del dispositivo. Solo se guardan por minuto: nivel de ruido 
 
 ## Roadmap
 
-- Modelo ML on-device (TensorFlow.js YAMNet) para mejorar detección de ronquidos.
-- Sincronización multi-dispositivo (Supabase o similar).
-- Tendencias semanales y comparativas entre noches.
+- Sincronización multi-dispositivo (auth + cloud DB tipo Supabase).
+- Comparativas entre semanas y heatmap mensual.
+- Reemplazar `ScriptProcessorNode` por `AudioWorklet` para producción.
 - Importar grabación de audio para análisis post-hoc.

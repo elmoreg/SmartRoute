@@ -76,3 +76,18 @@ def test_pwa_routes(client):
     mf = client.get("/manifest.webmanifest")
     assert mf.status_code == 200
     assert "manifest" in mf.headers["content-type"]
+
+
+def test_trends_endpoint(client):
+    client.post("/api/sessions", json=_payload())
+    res = client.get("/api/sessions/trends?days=7")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data["days"]) == 7
+    assert data["nights_tracked"] >= 0
+
+
+def test_trends_endpoint_clamps_days(client):
+    res = client.get("/api/sessions/trends?days=999")
+    assert res.status_code == 200
+    assert len(res.json()["days"]) == 60
