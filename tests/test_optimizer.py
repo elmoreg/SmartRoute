@@ -1,6 +1,7 @@
 """Unit tests for the route optimizer.
 
-We mock ``_call_directions`` so the tests never hit Google's network.
+We mock ``_call_osrm_trip`` and ``_call_osrm_route`` so the tests never hit
+OSRM's network.
 """
 import asyncio
 from types import SimpleNamespace
@@ -21,19 +22,48 @@ def make_addr(id_, lat, lng, sector=None):
     return SimpleNamespace(id=id_, lat=lat, lng=lng, sector=sector)
 
 
-def fake_route(waypoint_order, leg_count, distance_each=1000, duration_each=60):
+def fake_trip_response(waypoint_indices, addresses, distance_each=1000, duration_each=60):
+    """Build a fake OSRM /trip response.
+
+    ``waypoint_indices`` maps each input coordinate (index 0 = origin) to its
+    position in the optimised trip.
+    """
+    num_legs = len(waypoint_indices) - 1  # legs = waypoints - 1
     return {
-        "waypoint_order": waypoint_order,
-        "legs": [
-            {"distance": {"value": distance_each}, "duration": {"value": duration_each}}
-            for _ in range(leg_count)
+        "code": "Ok",
+        "waypoints": [
+            {"waypoint_index": idx, "location": [0, 0]}
+            for idx in waypoint_indices
         ],
-        "overview_polyline": {"points": "fake_polyline"},
+        "trips": [
+            {
+                "geometry": "fake_polyline",
+                "legs": [
+                    {"distance": distance_each, "duration": duration_each}
+                    for _ in range(num_legs)
+                ],
+            }
+        ],
+    }
+
+
+def fake_route_response(distance=1000, duration=60):
+    """Build a fake OSRM /route response (single origin→destination)."""
+    return {
+        "code": "Ok",
+        "routes": [
+            {
+                "geometry": "fake_polyline",
+                "legs": [
+                    {"distance": distance, "duration": duration}
+                ],
+            }
+        ],
     }
 
 
 def test_haversine_known_distance():
-    # Santiago → Valparaíso ≈ 100 km
+    # Santiago -> Valparaiso ~ 100 km
     d = haversine_m(-33.45, -70.66, -33.04, -71.62)
     assert 95_000 < d < 115_000
 
@@ -51,23 +81,30 @@ def test_group_by_sector_buckets_addresses():
 
 
 @pytest.mark.asyncio
-async def test_optimize_by_distance_reorders_via_waypoint_order():
+async def test_optimize_by_distance_reorders_via_trip():
     addrs = [
         make_addr(10, -33.45, -70.66),
         make_addr(20, -33.46, -70.67),
         make_addr(30, -33.47, -70.68),
         make_addr(40, -33.48, -70.69),
     ]
-    # Google decides order: 2nd waypoint first, then 0th, then 1st.
-    # waypoints are addrs[:-1] (ids 10,20,30); destination is id 40.
-    fake = fake_route(waypoint_order=[2, 0, 1], leg_count=4)
+    # OSRM decides optimal order for 5 waypoints (origin + 4 addresses).
+    # waypoint_indices: origin=0, addr10->3, addr20->1, addr30->2, addr40->4
+    # Sorted by waypoint_index: origin(0), addr20(1), addr30(2), addr10(3), addr40(4)
+    fake = fake_trip_response(
+        waypoint_indices=[0, 3, 1, 2, 4],
+        addresses=addrs,
+        distance_each=1000,
+        duration_each=60,
+    )
 
-    with patch.object(optimizer, "_call_directions", new=AsyncMock(return_value=fake)) as m:
+    with patch.object(optimizer, "_call_osrm_trip", new=AsyncMock(return_value=fake)) as m:
         result = await optimize_by_distance((-33.44, -70.65), addrs)
 
     m.assert_awaited_once()
-    # Reordered waypoints: id 30, 10, 20, then destination 40.
-    assert result["ordered_address_ids"] == [30, 10, 20, 40]
+    # Reordered by waypoint_index (excluding origin at 0):
+    # addr20 (index 1), addr30 (index 2), addr10 (index 3), addr40 (index 4)
+    assert result["ordered_address_ids"] == [20, 30, 10, 40]
     assert result["total_distance_m"] == 4000
     assert result["total_duration_s"] == 240
     assert result["overview_polyline"] == "fake_polyline"
@@ -76,9 +113,11 @@ async def test_optimize_by_distance_reorders_via_waypoint_order():
 @pytest.mark.asyncio
 async def test_optimize_by_distance_single_address():
     addrs = [make_addr(1, -33.45, -70.66)]
-    fake = fake_route(waypoint_order=[], leg_count=1)
-    with patch.object(optimizer, "_call_directions", new=AsyncMock(return_value=fake)):
+    fake = fake_route_response(distance=1000, duration=60)
+
+    with patch.object(optimizer, "_call_osrm_route", new=AsyncMock(return_value=fake)):
         result = await optimize_by_distance((-33.44, -70.65), addrs)
+
     assert result["ordered_address_ids"] == [1]
     assert result["total_distance_m"] == 1000
 
@@ -101,14 +140,18 @@ async def test_optimize_by_sector_groups_and_orders_by_proximity():
     ]
     origin = (-33.45, -70.66)
 
-    # Each sub-call returns a route with no reordering (waypoint_order=[0]),
-    # one waypoint and the destination → 2 legs.
-    fake = fake_route(waypoint_order=[0], leg_count=2, distance_each=500, duration_each=30)
+    # For 2-address groups: origin + 2 addresses = 3 waypoints, 2 legs
+    fake = fake_trip_response(
+        waypoint_indices=[0, 1, 2],
+        addresses=[],  # not used directly
+        distance_each=500,
+        duration_each=30,
+    )
 
-    with patch.object(optimizer, "_call_directions", new=AsyncMock(return_value=fake)) as m:
+    with patch.object(optimizer, "_call_osrm_trip", new=AsyncMock(return_value=fake)) as m:
         result = await optimize_by_sector(origin, addrs)
 
-    # Two sectors → two calls to Directions.
+    # Two sectors -> two calls to OSRM trip.
     assert m.await_count == 2
     # "Near" group must come first.
     assert result["ordered_address_ids"][:2] == [3, 4]
