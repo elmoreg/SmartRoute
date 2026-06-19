@@ -1,12 +1,12 @@
-"""Route optimization services.
+"""Route optimization services using OSRM (free, no API key required).
 
 Two strategies are exposed:
 
-* ``optimize_by_distance`` — sends every address as a Directions API waypoint
-  with ``optimize:true`` so Google itself returns the optimal visiting order.
+* ``optimize_by_distance`` — uses OSRM's ``/trip`` endpoint which solves the
+  Travelling Salesman Problem and returns the optimal visiting order.
 * ``optimize_by_sector`` — groups addresses by their ``sector`` field, sorts
   groups by haversine distance from the origin to the group centroid, then
-  optimizes each group sequentially using Directions API.
+  optimizes each group sequentially using the trip endpoint.
 
 Both strategies return the same shape::
 
@@ -23,11 +23,11 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Iterable, List, Sequence
 
-from app.config import get_settings
 from app.models import Address
 from app.services.google_client import get_client
 
-DIRECTIONS_URL = "https://maps.googleapis.com/maps/api/directions/json"
+OSRM_TRIP_URL = "https://router.project-osrm.org/trip/v1/driving"
+OSRM_ROUTE_URL = "https://router.project-osrm.org/route/v1/driving"
 
 
 def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -40,49 +40,99 @@ def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-async def _call_directions(
+def _build_coords_string(
     origin: tuple[float, float],
-    destination: tuple[float, float],
-    waypoints: Sequence[tuple[float, float]],
-    optimize: bool = True,
+    addresses: Sequence[Address],
+) -> str:
+    """Build ``lng,lat;lng,lat;...`` string for OSRM (note: OSRM uses lng,lat order)."""
+    parts = [f"{origin[1]},{origin[0]}"]
+    for a in addresses:
+        parts.append(f"{a.lng},{a.lat}")
+    return ";".join(parts)
+
+
+async def _call_osrm_trip(
+    origin: tuple[float, float],
+    addresses: Sequence[Address],
 ) -> Dict[str, Any]:
-    settings = get_settings()
-    if not settings.google_maps_api_key:
-        raise RuntimeError("GOOGLE_MAPS_API_KEY is not configured")
-
-    params: dict[str, str] = {
-        "origin": f"{origin[0]},{origin[1]}",
-        "destination": f"{destination[0]},{destination[1]}",
-        "key": settings.google_maps_api_key,
-        "mode": "driving",
+    """Call OSRM /trip endpoint for TSP solving."""
+    coords = _build_coords_string(origin, addresses)
+    url = f"{OSRM_TRIP_URL}/{coords}"
+    params = {
+        "source": "first",
+        "roundtrip": "false",
+        "geometries": "polyline",
+        "overview": "full",
+        "steps": "false",
     }
-    if waypoints:
-        prefix = "optimize:true|" if optimize else ""
-        params["waypoints"] = prefix + "|".join(f"{lat},{lng}" for lat, lng in waypoints)
-
     client = get_client()
-    response = await client.get(DIRECTIONS_URL, params=params)
+    response = await client.get(url, params=params)
     response.raise_for_status()
     payload = response.json()
-    if payload.get("status") != "OK" or not payload.get("routes"):
-        raise RuntimeError(f"Directions API error: {payload.get('status')}")
-    return payload["routes"][0]
+    if payload.get("code") != "Ok":
+        raise RuntimeError(f"OSRM trip error: {payload.get('code')} - {payload.get('message', '')}")
+    return payload
 
 
-def _summarize_route(route: Dict[str, Any]) -> Dict[str, Any]:
-    legs = route.get("legs", [])
+async def _call_osrm_route(
+    origin: tuple[float, float],
+    destination: tuple[float, float],
+) -> Dict[str, Any]:
+    """Call OSRM /route endpoint for a single origin→destination route."""
+    coords = f"{origin[1]},{origin[0]};{destination[1]},{destination[0]}"
+    url = f"{OSRM_ROUTE_URL}/{coords}"
+    params = {
+        "geometries": "polyline",
+        "overview": "full",
+        "steps": "false",
+    }
+    client = get_client()
+    response = await client.get(url, params=params)
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("code") != "Ok":
+        raise RuntimeError(f"OSRM route error: {payload.get('code')} - {payload.get('message', '')}")
+    return payload
+
+
+def _summarize_trip(trip: Dict[str, Any], addresses: Sequence[Address]) -> Dict[str, Any]:
+    """Extract ordered IDs, legs, and polyline from an OSRM trip response.
+
+    OSRM ``/trip`` returns ``trips[0].waypoints`` with an ``waypoint_index``
+    that describes the optimal order.  Waypoint 0 is the origin (not an
+    address), so address indices start at 1.
+    """
+    waypoints = trip["waypoints"]
+    # waypoints[0] is the origin; remaining are addresses in their original
+    # order.  Each waypoint has a ``waypoint_index`` telling the position in
+    # the optimised trip.
+    # Build a list of (optimised_position, address) pairs, excluding origin.
+    address_waypoints = []
+    for i, wp in enumerate(waypoints):
+        if i == 0:
+            continue  # skip origin
+        address_waypoints.append((wp["waypoint_index"], addresses[i - 1]))
+
+    # Sort by the optimised trip position.
+    address_waypoints.sort(key=lambda x: x[0])
+    ordered_ids = [addr.id for _, addr in address_waypoints]
+
+    trip_data = trip["trips"][0]
+    legs = trip_data.get("legs", [])
     parsed_legs = [
         {
-            "distance_m": leg.get("distance", {}).get("value", 0),
-            "duration_s": leg.get("duration", {}).get("value", 0),
+            "distance_m": int(leg.get("distance", 0)),
+            "duration_s": int(leg.get("duration", 0)),
         }
         for leg in legs
     ]
+
     return {
+        "ordered_address_ids": ordered_ids,
         "legs": parsed_legs,
         "total_distance_m": sum(l["distance_m"] for l in parsed_legs),
         "total_duration_s": sum(l["duration_s"] for l in parsed_legs),
-        "overview_polyline": (route.get("overview_polyline") or {}).get("points"),
+        "overview_polyline": trip_data.get("geometry"),
     }
 
 
@@ -90,12 +140,7 @@ async def optimize_by_distance(
     origin: tuple[float, float],
     addresses: List[Address],
 ) -> Dict[str, Any]:
-    """Optimize ordering using Google's waypoint optimization.
-
-    Destination is set to the *last* address in the optimized order — Google
-    decides which one to use because every address is provided as an
-    optimizable waypoint and we treat the route as origin → all stops.
-    """
+    """Optimize ordering using OSRM's trip endpoint (TSP solver)."""
     if not addresses:
         return {
             "ordered_address_ids": [],
@@ -107,28 +152,26 @@ async def optimize_by_distance(
 
     if len(addresses) == 1:
         only = addresses[0]
-        route = await _call_directions(origin, (only.lat, only.lng), [], optimize=False)
-        summary = _summarize_route(route)
-        summary["ordered_address_ids"] = [only.id]
-        return summary
+        payload = await _call_osrm_route(origin, (only.lat, only.lng))
+        route = payload["routes"][0]
+        legs = route.get("legs", [])
+        parsed_legs = [
+            {
+                "distance_m": int(leg.get("distance", 0)),
+                "duration_s": int(leg.get("duration", 0)),
+            }
+            for leg in legs
+        ]
+        return {
+            "ordered_address_ids": [only.id],
+            "legs": parsed_legs,
+            "total_distance_m": sum(l["distance_m"] for l in parsed_legs),
+            "total_duration_s": sum(l["duration_s"] for l in parsed_legs),
+            "overview_polyline": route.get("geometry"),
+        }
 
-    # Use the first address as the destination and let Google optimize the rest.
-    destination_addr = addresses[-1]
-    waypoint_addrs = addresses[:-1]
-    waypoints = [(a.lat, a.lng) for a in waypoint_addrs]
-    route = await _call_directions(
-        origin,
-        (destination_addr.lat, destination_addr.lng),
-        waypoints,
-        optimize=True,
-    )
-    waypoint_order = route.get("waypoint_order", list(range(len(waypoints))))
-    ordered_ids = [waypoint_addrs[i].id for i in waypoint_order]
-    ordered_ids.append(destination_addr.id)
-
-    summary = _summarize_route(route)
-    summary["ordered_address_ids"] = ordered_ids
-    return summary
+    payload = await _call_osrm_trip(origin, addresses)
+    return _summarize_trip(payload, addresses)
 
 
 def _group_by_sector(addresses: Iterable[Address]) -> Dict[str, List[Address]]:
@@ -188,7 +231,5 @@ async def optimize_by_sector(
         "legs": legs,
         "total_distance_m": total_distance_m,
         "total_duration_s": total_duration_s,
-        # We keep only the first polyline as a hint; frontend will ask the
-        # browser DirectionsService for the full drawing anyway.
         "overview_polyline": polylines[0] if polylines else None,
     }

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SmartRoute — Optimizador de ruta</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="/static/css/styles.css" />
 </head>
 <body>
@@ -25,7 +26,10 @@
 
         <label class="field">
           <span>Buscar / añadir manualmente</span>
-          <input id="address-input" type="text" placeholder="Ej: Av. Providencia 1234, Santiago" autocomplete="off" />
+          <div style="position:relative;">
+            <input id="address-input" type="text" placeholder="Ej: Av. Providencia 1234, Santiago" autocomplete="off" />
+            <ul id="autocomplete-list" class="autocomplete-list"></ul>
+          </div>
         </label>
 
         <details>
@@ -67,16 +71,9 @@
     </section>
   </main>
 
-  <script>
-    window.SMARTROUTE_CONFIG = {
-      googleMapsApiKey: "{{ google_maps_api_key }}"
-    };
-  </script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/static/js/map.js"></script>
   <script src="/static/js/input.js"></script>
   <script src="/static/js/app.js"></script>
-  <script
-    src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initMap"
-    async defer></script>
 </body>
 </html>

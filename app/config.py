@@ -8,7 +8,6 @@ load_dotenv()
 
 
 class Settings:
-    google_maps_api_key: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./smartroute.db")
 
 

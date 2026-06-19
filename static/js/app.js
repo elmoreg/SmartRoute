@@ -123,7 +123,7 @@ function renderResult(route) {
   });
 
   const orderedAddresses = route.stops.map((s) => s.address);
-  SmartMap.drawRoute({ lat: route.origin_lat, lng: route.origin_lng }, orderedAddresses);
+  SmartMap.drawRoute({ lat: route.origin_lat, lng: route.origin_lng }, orderedAddresses, route.overview_polyline);
 
   const link = document.getElementById('open-in-gmaps');
   link.href = buildGoogleMapsUrl({ lat: route.origin_lat, lng: route.origin_lng }, orderedAddresses);
@@ -195,15 +195,11 @@ function bindEvents() {
     }
   });
 
-  if (SmartMap && SmartMap.autocomplete) {
-    SmartMap.autocomplete.addListener('place_changed', () => {
-      const place = SmartMap.autocomplete.getPlace();
-      if (place && place.formatted_address) {
-        addAddressFromText(place.formatted_address);
-        input.value = '';
-      }
-    });
-  }
+  // Listen for autocomplete selection from Nominatim (fired by map.js)
+  document.addEventListener('smartmap:autocomplete', (e) => {
+    addAddressFromText(e.detail);
+    input.value = '';
+  });
 
   document.getElementById('btn-bulk').addEventListener('click', () => {
     const ta = document.getElementById('bulk-input');

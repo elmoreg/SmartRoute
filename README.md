@@ -1,22 +1,25 @@
 # SmartRoute
 
-Optimizador de ruta de despacho. Permite ingresar varias direcciones de entrega y generar la ruta óptima en Google Maps según dos criterios:
+Optimizador de ruta de despacho. Permite ingresar varias direcciones de entrega y generar la ruta óptima según dos criterios:
 
-- **Por distancia** — usa Google Directions API con `optimize:true` para reordenar los waypoints.
-- **Por sector** — agrupa las direcciones por comuna/barrio (vía Google Geocoding) y luego optimiza dentro de cada grupo.
+- **Por distancia** — usa OSRM `/trip` endpoint (TSP solver) para reordenar los waypoints.
+- **Por sector** — agrupa las direcciones por comuna/barrio (vía Nominatim geocoding) y luego optimiza dentro de cada grupo.
 
 ## Características
 
-- Tres formas de añadir direcciones: manual con autocomplete, carga masiva (CSV o lista), o click en el mapa.
+- Tres formas de añadir direcciones: manual con autocomplete (Nominatim), carga masiva (CSV o lista), o click en el mapa.
 - Origen tomado desde la geolocalización del navegador ("Mi ubicación").
-- Mapa embebido con la ruta dibujada y panel con orden de paradas, distancia y duración total.
-- Botón **"Abrir en Google Maps"** que arma el deep-link con todos los waypoints.
+- Mapa embebido con Leaflet + OpenStreetMap, ruta dibujada y panel con orden de paradas, distancia y duración total.
+- Botón **"Abrir en Google Maps"** que arma el deep-link con todos los waypoints (enlace externo, no requiere API key).
 - Persistencia en SQLite: direcciones frecuentes e historial de rutas.
+- **No requiere API keys** — usa servicios gratuitos: Nominatim, OSRM, OpenStreetMap tiles.
 
 ## Stack
 
 - **Backend**: FastAPI + SQLModel + httpx
-- **Frontend**: HTML + Vanilla JS + Google Maps JavaScript API
+- **Frontend**: HTML + Vanilla JS + Leaflet.js + OpenStreetMap
+- **Geocoding**: Nominatim (OpenStreetMap)
+- **Routing**: OSRM (Open Source Routing Machine)
 - **DB**: SQLite
 
 ## Setup
@@ -27,21 +30,11 @@ source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 cp .env.example .env
-# Editar .env y poner tu GOOGLE_MAPS_API_KEY
 
 uvicorn app.main:app --reload
 ```
 
 Luego abre http://localhost:8000
-
-### APIs de Google necesarias
-
-Habilita en tu proyecto de Google Cloud:
-
-- Maps JavaScript API
-- Places API
-- Geocoding API
-- Directions API
 
 ## Tests
 
@@ -59,9 +52,9 @@ app/
   models.py        SQLModel: Address, Route, RouteStop
   schemas.py       Pydantic request/response
   services/
-    google_client.py
-    geocoding.py   Wrapper Google Geocoding
-    optimizer.py   optimize_by_distance / optimize_by_sector
+    google_client.py  Shared httpx client (Nominatim/OSRM)
+    geocoding.py      Wrapper Nominatim geocoding
+    optimizer.py      optimize_by_distance / optimize_by_sector (OSRM)
   routers/
     addresses.py
     routes.py
